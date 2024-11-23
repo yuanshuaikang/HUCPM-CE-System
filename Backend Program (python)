@@ -1,0 +1,820 @@
+import json
+import math
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from math import sqrt
+import random
+import collections
+import time
+import tkinter as tk
+
+
+def input_parameter(address, min_utility, min_dist, iterative, sample, min_gap):
+    instance_number = 0
+    f = open(address, encoding="UTF-8")
+    utility_list = {}
+    Instance = []
+    Positions = []
+    table_information = []
+    flag = 0
+    count = 0
+    for line in f:
+        temp_2 = []
+        temp_dict = {
+            'Feature': '',
+            'Instance': '',
+            'LocX': '',
+            'LocY': '',
+            'Checkin': ''
+        }
+        temp = line.strip().split(",")
+        if temp != [''] and temp != ['Instance', 'Feature', 'LocX', 'LocY', 'Checkin'] and flag == 0 and temp != [
+            'utility', '', '', '', '']:
+            temp_dict['Feature'] = temp[0]
+            temp_dict['Instance'] = temp[1]
+            temp_dict['LocX'] = temp[2]
+            temp_dict['LocY'] = temp[3]
+            temp_dict['Checkin'] = temp[4]
+            temp_1 = []
+            s = temp[0] + temp[1]
+            temp_2.append(s)
+            temp_1.append(float(temp[2]))
+            temp_1.append(float(temp[3]))
+            temp_2.append(float(temp[2]))
+            temp_2.append(float(temp[3]))
+            Instance.append(temp_2)
+            Positions.append(temp_1)
+            instance_number += 1
+            # if count < 60:
+            table_information.append(temp_dict)
+            count += 1
+        if temp == ['utility', '', '', '', '']:
+            flag = 1
+        if flag == 1 and temp != ['utility', '', '', '', '']:
+            utility_list[temp[0]] = int(temp[1])
+    f.close()
+    max_feature_value = []
+    for f in utility_list:
+        if len(max_feature_value) == 0:
+            max_feature_value.append(f)
+            max_feature_value.append(utility_list[f])
+        elif utility_list[f] > max_feature_value[1]:
+            max_feature_value.clear()
+            max_feature_value.append(f)
+            max_feature_value.append(utility_list[f])
+
+    return Instance, utility_list, min_utility, min_dist, iterative, sample, min_gap, instance_number, len(
+        utility_list.keys()), max_feature_value, Positions, table_information
+
+
+#  计算出每个特征的总效用然后将特征按照总效用从大到小排列
+def Compute_utility(Utility, instance):
+    utility_dict = {}
+    feature_instance = {}
+    max_feature_num = []
+    min_feature_num = []
+    max_totle_feature = []
+
+    for elem in Utility.keys():
+        if elem not in feature_instance.keys():
+            feature_instance[elem] = 0
+        number_instance = 0
+        for i in instance:
+            if i[0][0] == elem:
+                number_instance += 1
+        utility_dict[elem] = number_instance * Utility[elem]
+        feature_instance[elem] = number_instance
+    all_utility = 0
+
+    for elem in utility_dict.keys():
+        all_utility += utility_dict[elem]
+    for f in feature_instance.keys():
+        if len(max_feature_num) == 0:
+            max_feature_num.append(f)
+            max_feature_num.append(feature_instance[f])
+        elif feature_instance[f] > max_feature_num[1]:
+            max_feature_num.clear()
+            max_feature_num.append(f)
+            max_feature_num.append(feature_instance[f])
+
+        if len(min_feature_num) == 0:
+            min_feature_num.append(f)
+            min_feature_num.append(feature_instance[f])
+        elif feature_instance[f] < min_feature_num[1]:
+            min_feature_num.clear()
+            min_feature_num.append(f)
+            min_feature_num.append(feature_instance[f])
+
+        if len(max_totle_feature) == 0:
+            max_totle_feature.append(f)
+            max_totle_feature.append(utility_dict[f])
+        elif utility_dict[f] > max_totle_feature[1]:
+            max_totle_feature.clear()
+            max_totle_feature.append(f)
+            max_totle_feature.append(utility_dict[f])
+
+    return all_utility, feature_instance, max_feature_num, min_feature_num, max_totle_feature
+
+
+#  计算出所有的实例邻近关系
+def computed_neigh(instance_1, instance_2, d):
+    x = instance_1[1] - instance_2[1]
+    y = instance_1[2] - instance_2[2]
+    distance_12 = sqrt(x ** 2 + y ** 2)
+    if distance_12 <= d:
+        return True
+    else:
+        return False
+
+
+def grid_method(i, d):
+    """
+    采用网格法计算每一个实例的邻近结点，每一个实例只用检查本身所在网格以及与它相邻的八个方向的网格
+    :param i: 实例集
+    :param d: 网格变成（距离阈值）
+    :return: Ns，PNs，SNs
+    """
+    geshu = 0
+    # 找到整个网格的范围，对网格进行划分，并将实例分配进对应的网格
+    x_min = min(x[1] for x in i)
+    y_min = min(x[2] for x in i)
+    hash_grid = {}
+    for elem in i:
+        x_order = math.ceil((elem[1] - x_min) / d)
+        y_order = math.ceil((elem[2] - y_min) / d)
+        if x_order == 0:
+            x_order += 1
+        if y_order == 0:
+            y_order += 1
+        hash_grid.setdefault((x_order, y_order), []).append(elem)
+
+    # 根据划分的网格计算每个实例的邻近关系
+    Ns = {}
+    computed_neigh = lambda x, y, d: (x[1] - y[1]) ** 2 + (x[2] - y[2]) ** 2 <= d ** 2
+    for elem_hash, grid_instances in hash_grid.items():
+        for elem_list in grid_instances:
+            Ns.setdefault(elem_list[0], [])
+            for x in grid_instances:
+                if x[0][0] != elem_list[0][0] and computed_neigh(x, elem_list, d):
+                    Ns[elem_list[0]].append(x[0])
+                    geshu += 1
+
+            # 计算相邻的八个方向
+            for delta_x in range(-1, 2):
+                for delta_y in range(-1, 2):
+                    if delta_x == delta_y == 0:
+                        continue
+                    adjacent_grid = (elem_hash[0] + delta_x, elem_hash[1] + delta_y)
+                    if adjacent_grid in hash_grid:
+                        for elem_xy in hash_grid[adjacent_grid]:
+                            if elem_xy[0][0] != elem_list[0][0] and computed_neigh(elem_xy, elem_list, d):
+                                Ns[elem_list[0]].append(elem_xy[0])
+                                geshu += 1
+    return Ns, geshu
+
+
+#  计算粗略上界并剪枝
+def Prune_one(nis, utility, min_utility, ALL):
+    extend_utility = {}  # 存放每个特征的扩展效用
+    have_traversal = {}  # 存放该实例是否已经被计算到扩展效用中
+
+    for nis_ket in nis.keys():
+        if nis_ket[0] not in have_traversal.keys():
+            have_traversal[nis_ket[0]] = []  # 初始化
+            extend_utility[nis_ket[0]] = 0
+
+        have_traversal[nis_ket[0]] = list(set(have_traversal[nis_ket[0]]) | set(nis[nis_ket]))
+        have_traversal[nis_ket[0]].append(nis_ket)
+
+    ins_number = {}
+    for item in have_traversal.keys():
+        ins_number[item] = 0
+        for item_elem in have_traversal[item]:
+            ins_number[item] += 1
+            extend_utility[item] += utility[item_elem[0]]
+
+    #  删除上界小于min的特征
+    delete = []
+    for up_key in extend_utility.keys():
+        if extend_utility[up_key] < min_utility:
+            delete.append(up_key)
+    return delete, ins_number
+
+
+# 计算初始概率
+def initial_probability(feature_instance, utility, instance_neighbor, delete):
+    #  记录所有的特征的初始生成概率
+    probability = {}
+    #  先得到参数
+    beita = 0.3  # 控制实例的参数111111111111111111111111111111111111111111111111
+    #  计算参数C
+    temp = {}
+    averge = 0
+    count = 0  # count=0是因为模式全部被删除了
+    for feature in utility.keys():
+        if feature not in delete:
+            log_neighbor_x = math.log(instance_neighbor[feature] + 1, 2)
+            log_utility_x = math.log(utility[feature] + 1, 2)
+            log_instance_x = math.log(feature_instance[feature] ** beita + 1, 2)
+            temp[feature] = log_neighbor_x * log_utility_x * log_instance_x
+            averge += log_neighbor_x * log_utility_x * log_instance_x
+            count += 1
+    C = averge / count  # 参数C222222222222222222222222222222222222222222222222
+    # print(C)
+    aerfa = 0.025  # 参数aerfa3333333333333333333333333333333333333333333333333
+    for key in temp.keys():
+        probability[key] = 1 / (1 + math.e ** (-aerfa * (temp[key] - C)))
+    return probability
+
+
+def structure_tree(i, can_key, nis, temp_clique, key, inter, A):
+    if len(inter) == 0:
+        return
+    if i == len(can_key) and temp_clique not in A:
+        A.append(temp_clique)
+        return
+
+    for elem in inter:
+        if elem[0] == can_key[i]:
+            new_temp_clique = temp_clique + [elem]
+            new_inter = sorted(list(set(nis[elem]) & set(inter)))
+            structure_tree(i + 1, can_key, nis, new_temp_clique, key, new_inter, A)
+            if len(new_temp_clique) + 1 == len(can_key):
+                A.append(new_temp_clique)
+    return
+
+
+def Enum_Cliques(nis, can_key):
+    # 构建一颗树
+    tree = {}
+    for key in nis.keys():
+        i = 1  # 记录现在是树的第几层
+        A = []
+        if key[0] == can_key[i - 1]:
+            tree[key] = []  # 生成头节点
+            for elem in nis[key]:  # 遍历头节点的邻近关系找到对应特征的实例 进入a1
+                if elem[0] == can_key[i]:
+                    temp_clique = [elem]  # 存储暂时团
+                    if len(can_key) > i + 1:
+                        inter = sorted(list(set(nis[elem]) & set(nis[key])))
+                        # print(key, elem, inter)
+                        structure_tree(i + 1, can_key, nis, temp_clique, key, inter, A)
+                    else:
+                        tree[key].append(temp_clique)
+            # print(A,'AAAAAAAAAAAA')
+            if len(A) != 0:
+                for elem in A:
+                    tree[key].append(elem)
+            if len(tree[key]) == 0:
+                del tree[key]
+            # print(tree)
+    return tree
+
+
+#  计算当前模式的效用
+def compute_utility(tree, utility, can_pattern, all, contribution):
+    feature_number = {}
+
+    for feature in can_pattern:
+        feature_number[feature] = []
+    for key in tree.keys():
+        feature_number[key[0]].append(key)
+        for elem in tree[key]:
+            for elem_1 in elem:
+                if elem_1 not in feature_number[elem_1[0]]:
+                    feature_number[elem_1[0]].append(elem_1)
+
+    str = ""  # 当前模式
+    for feature in can_pattern:
+        str += feature
+    contribution[str] = {}
+    pattern_utility = 0
+    # print(feature_number)
+    for key in feature_number.keys():
+        pattern_utility += len(feature_number[key]) * utility[key]
+        contribution[str][key] = (len(feature_number[key]) * utility[key])
+    # print(pattern_utility)
+    return pattern_utility
+
+
+#  计算每个特征的贡献率
+def compute_contribution(contribution, excellent_s, o):
+    #  不需要每个特征都改变概率,只将出现的精英样本更新概率
+    #  首先获得所有需要更新的特征
+    feature_update_pr = {}
+    for sample in excellent_s:
+        for al in sample:
+            if al not in feature_update_pr.keys():
+                feature_update_pr[al] = 0
+    # print(feature_update_pr)
+
+    #  按照顺序依次计算每个特征的概率
+    for feature in feature_update_pr.keys():
+        all_appear_utility = 0  # 出现该特征的总效用
+        feature_contribution = 0  # 该特征的贡献效用
+        count = 0  # 记录这个出现该特征的模式的个数
+        # print(feature)
+        # print('精英样本', excellent_s)
+
+        for sample in excellent_s:
+            if feature in sample:
+                for elem in contribution[sample]:
+                    all_appear_utility += contribution[sample][elem]
+                    if elem == feature:
+                        count += 1
+                        feature_contribution += contribution[sample][feature]
+        # all_appera_utility为0的话说明数据集太稀疏了，没有行实例可以满足当前的候选模式，即使取前百分之30精英样本来更新也是为0
+        # print(count, feature, excellent_s)
+        if all_appear_utility != 0:
+            feature_update_pr[feature] = count / len(excellent_s)
+        # print(feature_contribution, all_appear_utility)
+    # print(feature_update_pr)
+    return feature_update_pr
+
+
+#  主函数
+def CE(init_probability, delete, all, min_utility, nis, utility, t, current_N, gap):
+    probability_list = []
+    variation_LIST = []
+    EXam_pattern = []
+    temp = []
+    accept = 0.25  # 可接受的下降因子 66666666666666666666666666666666
+    Satisfy_constraints = []  # 记录满足约束的模式数量
+    current_t = 1  # 当前迭代
+    variation = 0  # 已经变异的次数
+    have_variation = []  # 已经变异的特征集合
+    high_utility_pattern = {}
+    have_exam = []  # 记录已经检查过的模式
+    O = 1
+    ture = []
+
+    feature_list = list(init_probability.keys())  # 所有特征的集合
+    list2 = [item for item in feature_list if item not in delete]  # 没有被删除的特征集合
+    current_p = {}  # 没有被删出的特征的概率集合
+    for elem in list2:
+        current_p[elem] = init_probability[elem]
+
+    while current_t <= t:
+        for p in current_p.keys():
+            temp.append(current_p[p])
+        probability_list.append(temp)
+        temp = []
+        # print(current_p, "迭代的概率")
+        # 首先需要检查是否需要变异
+        if variation <= gap:
+            if current_t > gap + 1:
+                count = 0
+                for i in range(2, gap + 2):
+                    count += Satisfy_constraints[current_t - i - 1]
+                Change = accept * count / gap
+                # print(Change)
+                if Satisfy_constraints[current_t - 2] <= Change:  # 判断是否需要变异的条件
+                    # print('本次循环概率变异了11111111111111111111111')
+                    variation_LIST.append(1)
+                    i = 0
+                    for p in current_p.keys():
+                        if current_p[p] < 0.5:
+                            i = 1
+                    if i == 1:
+                        while True:
+                            letter = random.choice(''.join(current_p.keys()))
+                            if current_p[letter] < 0.5 and letter not in have_variation:
+                                current_p[letter] = 0.5
+                                have_variation.append(letter)
+                                break
+                    variation += 1
+                else:
+                    variation = 0
+                    variation_LIST.append(0)
+            else:
+                # print(current_t,"111111111111111")
+                variation_LIST.append(0)
+
+        # 根据更新过的概率和样本空间生成样本
+        can_list = []  # 存放生成的样本
+        i = 0
+        while i < current_N:
+            selected_letters = []
+
+            # 按顺序依次选择字母  这里有问题!!!!!!
+            for letter, probability in current_p.items():
+                if random.random() < probability:  # 根据概率决定是否选择
+                    selected_letters.append(letter)
+            i += 1
+            if len(selected_letters) > 1:
+                can_list.append(selected_letters)
+        # print(len(can_list), "555555555555555555")  # 生成的样本
+
+        #  检查候选模式
+        number = 0  # 记录当前迭代满足约束的个数
+        exam_num = 0
+        pattern_utility = {}  # 记录当前样本的情况
+        Contribution = {}  # 记录当前迭代每个模式的贡献率
+        for elem in can_list:
+            str = ""  # 当前模式
+            if elem not in have_exam:
+                exam_num += 1
+                TREE = Enum_Cliques(nis, elem)  # 找到行实例
+                UR = compute_utility(TREE, utility, elem, all, Contribution)  # 计算模式的效用率
+                for feature in elem:
+                    str += feature
+                pattern_utility[str] = UR  # 记录模式的效用率
+                high_utility_pattern[str] = {}
+                if UR >= min_utility:
+                    ture.append(str)
+                    high_utility_pattern[str] = Contribution[str]
+                    number += 1
+                have_exam.append(elem)
+        Satisfy_constraints.append(number)
+        # print(Contribution)
+        # print(high_utility_pattern)
+        # print(pattern_utility)
+        # print(exam_num, '本次循环被检查的模式个数222222222222')
+        EXam_pattern.append(len(can_list))
+        print("第", current_t, '次迭代发现：', len(ture), "高效用模式的个数")
+        # print(ture)
+
+        #  现在还差最后的概率更新 如果前gap次迭代使用前百分值p的精英样本更新概率 因为前几次迭代高效用模式可能不够作为概率样本更新的条件
+        p = 0.3  # 前gap次迭代取前百分之p的精英样本更新概率7777777777777777777777777777777777777777777
+        if len(pattern_utility) != 0:  # 只有不为空的时候才更新概率 将模式从小到大排列
+
+            if current_t <= gap or len(ture) == 0:
+                sorted_pattern_utility = dict(
+                    collections.OrderedDict(sorted(pattern_utility.items(), key=lambda x: x[1], reverse=True)))
+                pattern_num = int(p * len(sorted_pattern_utility))
+                excellent_sample = []
+                i = 0
+                for key_pattern in sorted_pattern_utility.keys():
+                    excellent_sample.append(key_pattern)
+                    i += 1
+                    if i == pattern_num:
+                        break
+
+                #  有了精英样本和精英样本每个特征对应的贡献,就可以计算它的贡献率了
+                Contributed_ratio = compute_contribution(Contribution, excellent_sample, O)
+                # print(Contributed_ratio)
+            else:
+                Contributed_ratio = compute_contribution(high_utility_pattern, ture, O)
+
+            for k_p in Contributed_ratio.keys():  # 更新概率
+                if current_t <= gap and current_p[k_p] != 0:
+                    Contributed_ratio[k_p] = Contributed_ratio[k_p]
+                if current_t > gap:
+                    current_p[k_p] = Contributed_ratio[k_p]
+        current_t += 1
+        # print(Satisfy_constraints)
+    # print(probability_list)
+    return ture, EXam_pattern, probability_list, variation_LIST, Satisfy_constraints
+
+
+def translate_patterns(patterns, true_name_mapping):
+    translated_patterns = []
+    for pattern in patterns:
+        translated_patterns.append(", ".join(true_name_mapping[char] for char in pattern))
+    return translated_patterns
+
+def assign_patterns_to_categories(translated_patterns, kinds):
+    for pattern in translated_patterns:
+        # 获取第一个逗号前的名称
+        primary_category = pattern.split(", ")[0]
+        # 将模式加入对应的类别列表中
+        kinds[primary_category].append(pattern)
+    return kinds
+
+
+def my_func(ADress, MIn_utility, MIn_dist, ITerative, SAmple_space, MIn_gap):
+    start_time = time.time()
+    # print(ADress, MIn_utility, MIn_dist, ITerative, SAmple_space, MIn_gap)
+    # print(type(ADress), type(MIn_utility), type(MIn_dist))
+    Instance, Utility, Min_utility, D, t, current_N, gap, Instance_number, Feature_number, Max_feature_value, POsitions, Table_information = input_parameter(
+        ADress, MIn_utility, MIn_dist, ITerative, SAmple_space, MIn_gap)
+
+    ALL_utility, Feature_instance, Max_instance_number, Min_instance_number, Max_total_utility = Compute_utility(
+        Utility, Instance)
+    # print(ALL_utility)  # 数据集的总效用
+    # print(Feature_instance)  # 每个特征的数量
+    NIS, Geshu = grid_method(Instance, D)
+    # print(NIS)  # 邻近实例集
+    Delete, Instance_neighbor = Prune_one(NIS, Utility, Min_utility, ALL_utility)
+    #  Delete是删除的特征集合  Instance_neighbor是每个特征相邻实例的个数
+    # print(Delete, Instance_neighbor, "11111111111111111111")
+    Probability = initial_probability(Feature_instance, Utility, Instance_neighbor, Delete)
+    # print(Probability)
+    ture_pattern, exam_patterns, Probability_list, variation, Satisfy = CE(Probability, Delete, ALL_utility,
+                                                                           Min_utility, NIS, Utility, t, current_N, gap)
+    # print("输出高效用模式:", ture_pattern)
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    # print(f"程序运行时间: {elapsed_time} 秒")
+    #  每次迭代的概率、高效用模式集、每次迭代检查的模式数量、
+    return ture_pattern, exam_patterns, Probability_list, variation, Utility, Satisfy, Instance_number, Feature_number, Max_instance_number, Min_instance_number, Max_total_utility, Max_feature_value, int(
+        Geshu / Instance_number), POsitions, Table_information
+
+
+def request_post():
+    data = {'result': 'this is a test'}
+    host = ('localhost', 8999)
+    server = HTTPServer(host, Resquest)
+    print("Starting server, listen at: %s:%s" % host)
+    server.serve_forever()
+
+
+class Resquest(BaseHTTPRequestHandler):
+    def handler(self):
+        # print("data:", self.rfile.readline().decode())
+        self.wfile.write(self.rfile.readline())
+
+    def do_GET(self):
+        # print(self)
+        # print(self.path)
+        # print(self)
+        # print(self.path)
+        if self.requestline == 'GET /login111 HTTP/1.1':
+            # print("11111")
+            data = {
+                'result_code': '1',
+                'result_desc': 'Success',
+                'timestamp': '',
+                'data': {'message_id': '25d55ad283aa400af464c76d713c07ad'}
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+        if self.requestline == 'GET /users/login?username=super_admin&secret=super_admin HTTP/1.1':
+            # print("11111")
+            data = {
+                'result_code': '1',
+                'result_desc': 'Success',
+                'timestamp': '',
+                'data': {'message_id': '25d55ad283aa400af464c76d713c07ad'}
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+        if self.requestline == 'GET /get_info HTTP/1.1':
+            # print("11111")
+            data = {
+                'result_code': '1',
+                'result_desc': 'Success',
+                'timestamp': '',
+                'data': {'message_id': '25d55ad283aa400af464c76d713c07ad'}
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+    def do_OPTIONS(self):
+        # print(self.requestline)
+        if self.path == '/save_error_logger':
+            data = {
+                'result_code': '1',
+                'result_desc': 'Success',
+                'timestamp': '',
+                'data': {'message_id': '25d55ad283aa400af464c76d713c07ad'}
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+    def do_POST(self):
+        # print(self.headers)
+        # print(self.command)
+
+        if self.requestline == 'POST /login111 HTTP/1.1':
+            data = {
+                'result_code': '1',
+                'result_desc': 'Success',
+                'timestamp': '',
+                'data': {'message_id': '25d55ad283aa400af464c76d713c07ad'}
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode())
+
+        if self.requestline == 'POST /getdata111 HTTP/1.1':
+            print(self.requestline)
+
+            req_datas = self.rfile.read(int(self.headers['content-length']))
+            # data = self.request
+            # print(req_datas.decode())
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Adress = json_load['adress']
+            # print(Adress)
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Min_utility = int(json_load['min_utility'])
+            # print(Min_utility)
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Min_dist = float(json_load['min_dist'])
+            # print(Min_dist)
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Iterative = int(json_load['iterative'])
+            # print(Iterative)
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Sample_space = int(json_load['sample_space'])
+            # print(Sample_space)
+
+            decode = req_datas.decode()
+            json_load = json.loads(decode)
+            Min_gap = int(json_load['min_gap'])
+            # print(Min_gap)
+            #
+            #
+            # # req_datas = self.rfile.read(int(self.headers['content-length']))  # 重点在此步!
+            # # data_return = self.rfile.read("qqq")
+            # # print(data_return)
+            # # datas = urllib.unquote(req_datas).decode("utf-8", 'ignore')
+            # # print(req_datas.decode())
+            # # decode = req_datas.decode()
+            # # id_list = json.loads(decode)
+            #
+            #
+            Ture_pattern, Exam_patterns, Probability_list, Variation_list, UTility, SAT, INstance_number, FEAture_number, MAX_instance, MIN_instance, MAX_total_utility, MAX_feature_value, average, POSitions, TABLE_information = my_func(
+                Adress, Min_utility, Min_dist, Iterative, Sample_space, Min_gap)
+
+            TURE_NAME = {
+                'A':'Dining Services', 'B':'Station', 'C':'Public Facilities', 'D':'Enterprise', 'E':'Shopping Mall', 'F':'School', 'G':'Auto Repair', 'H':'Residential', 'I':'Medical', 'J':'Insurance', 'K':'Government Agency'
+            }
+
+            UTILITY = {}
+            for key in UTility.keys():
+                UTILITY[TURE_NAME[key]] = UTility[key]
+            # print(UTILITY)
+            Max_instance = [TURE_NAME[MAX_instance[0]], MAX_instance[1]]
+            Min_instance = [TURE_NAME[MIN_instance[0]], MIN_instance[1]]
+            Max_total_utility = [TURE_NAME[MAX_total_utility[0]], MAX_total_utility[1]]
+            Max_feature_value = [TURE_NAME[MAX_feature_value[0]], MAX_feature_value[1]]
+
+            # print(TABLE_information)
+
+            information = []
+            for dicts in TABLE_information:
+                # 在每次循环时创建一个新的字典
+                temp = {
+                    'Feature': TURE_NAME[dicts['Feature']],
+                    'Instance': dicts['Instance'],
+                    'LocX': dicts['LocX'],
+                    'LocY': dicts['LocY'],
+                    'Checkin': dicts['Checkin']
+                }
+
+                # 添加到 information 列表
+                information.append(temp)
+
+            new_pattern = []
+
+            # for i in range(200):
+            #     new_pattern.append(Ture_pattern[i])
+            #
+            #
+            # # 执行转换
+            # translated_patterns = translate_patterns(new_pattern, TURE_NAME)
+            #
+            # kinds = {
+            #     'Dining Services': [],
+            #     'Station': [],
+            #     'Public Facilities': [],
+            #     'Enterprise': [],
+            #     'Shopping Mall': [],
+            #     'School': [],
+            #     'Auto Repair': [],
+            #     'Residential': [],
+            #     'Medical': [],
+            #     'Insurance': [],
+            #     'Government Agency': []
+            # }
+            #
+            # kinds = assign_patterns_to_categories(translated_patterns, kinds)
+            #
+            # tree_struct = {
+            #     'label': 'HUCPs',
+            #     'children': [
+            #         {
+            #             'label': 'Dining Services',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Station',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Public Facilities',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Enterprise',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Shopping Mall',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'School',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Auto Repair',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Residential',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Medical',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Insurance',
+            #             'children': []
+            #         },
+            #         {
+            #             'label': 'Government Agency',
+            #             'children': []
+            #         }
+            #     ]
+            # }
+            #
+            # count = 0
+            #
+            # #  按照分配结果将其加入到树中
+            # for category in kinds.keys():
+            #     # print(category)
+            #     for pattern in kinds[category]:
+            #         temp_kinds = {
+            #             'label': pattern,
+            #             'children': []
+            #         }
+            #         # 一直向下遍历字典tree_struct
+            #         child = tree_struct['children'][count]
+            #         flag = 0
+            #         while flag == 0:
+            #             if len(child['children']) == 0:
+            #                 child['children'].append(temp_kinds)
+            #                 flag = 1
+            #             else:
+            #                 child = child['children'][0]
+            #     count += 1
+            #
+            # print(tree_struct['children'][1])
+
+            data = {
+                'High_utility_pattern': Ture_pattern,
+                'Exam_pattern_number': Exam_patterns,
+                'Probability': Probability_list,
+                'Variation': Variation_list,
+                'utility_value': UTILITY,
+                'Satisfy_number': SAT,
+                'INSTANCE_number': INstance_number,
+                'FEATURE_number': FEAture_number,
+                "MAX_INSTANCE": Max_instance,
+                'MIN_INSTANCE': Min_instance,
+                "MAX_TOTAL_UTILITY": Max_total_utility,
+                'MAX_FEATURE_VALUE': Max_feature_value,
+                'AVERAGE': average,
+                'POSITIONS': POSitions,
+                'TABLE_information': information,
+                # 'Tree_struct': tree_struct
+            }
+            # data = {
+            #     'High_utility_pattern':"1111"
+            #
+            # }
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
+
+            self.send_header('Access-Control-Allow-Credentials', 'true')
+            self.send_header('Access-Control-Allow-Methods', 'POST, GET, PATCH, DELETE, PUT')
+            self.send_header('Access-Control-Max-Age', '3600')
+
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+
+            print('mission success')
+
+    def finish(self):
+        pass
+
+
+if __name__ == "__main__":
+    #生成python后端
+    request_post()
