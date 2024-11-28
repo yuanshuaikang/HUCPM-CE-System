@@ -2,7 +2,8 @@
 A System for Mining High Utility Co-location Patterns with an Enhanced Cross-Entropy Approach
 
 The vue version used vue@2.7.8
-
+The npm version used 6.9.0
+The node.js version used v12.1.0
 
 ## Tutorial
 1. Download and unzip the file.
