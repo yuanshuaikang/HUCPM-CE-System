@@ -1,5 +1,9 @@
 # HUCPM-CE-System
 A System for Mining High Utility Co-location Patterns with an Enhanced Cross-Entropy Approach
+
+The vue version used vue@2.7.8
+
+
 ## Tutorial
 1. Download and unzip the file.
 
